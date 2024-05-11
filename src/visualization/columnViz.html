@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>deck.gl ColumnLayer Example</title>
+  <!-- Include required scripts and stylesheets -->
+  <script src="https://d3js.org/d3.v4.js"></script>
+  <script src="https://unpkg.com/deck.gl@^8.8.0/dist.min.js"></script>
+  <script src='https://unpkg.com/maplibre-gl@2.4.0/dist/maplibre-gl.js'></script>
+  <link href='https://unpkg.com/maplibre-gl@2.4.0/dist/maplibre-gl.css' rel='stylesheet' />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+	<script src="https://unpkg.com react/umd/react.production.min.js"></script>
+	<script src="https://unpkg.com react-dom/umd/react-dom.production.min.js"></script>
+	<script src="https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-geocoder/v4.7.0/mapbox-gl-geocoder.min.js"></script>
+	<link rel="stylesheet"href="https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-geocoder/v4.7.0/mapbox-gl-geocoder.css" type="text/css" />
+	<script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
+	<script src="https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-draw/v1.4.0/mapbox-gl-draw.js"></script>
+	<link rel="stylesheet" href="https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-draw/v1.4.0/mapbox-gl-draw.css" type="text/css">
+	<script src="https://api.mapbox.com/mapbox-gl-js/v2.13.0/mapbox-gl.js"></script>
+	<script src="https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-geocoder/v5.0.0/mapbox-gl-geocoder.min.js"></script>
+	<link rel="stylesheet" href="https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-geocoder/v5.0.0/mapbox-gl-geocoder.css" type="text/css">
+	<script src='https://api.mapbox.com/mapbox-gl-js/v2.9.1/mapbox-gl.js'></script>
+	<link href='https://api.mapbox.com/mapbox-gl-js/v2.9.1/mapbox-gl.css' rel='stylesheet' />
+	<script src="https://d3js.org/d3.v4.js"></script>
+	<script src="https://unpkg.com/deck.gl@^8.8.0/dist.min.js"></script>
+	<script src='https://unpkg.com/maplibre-gl@2.4.0/dist/maplibre-gl.js'></script>
+	<link href='https://unpkg.com/maplibre-gl@2.4.0/dist/maplibre-gl.css' rel='stylesheet' />
+  <style type="text/css">
+
+    .slider-container {
+        display: flex;
+        align-items: center;
+        width: 50%;
+        margin-bottom: 10px;
+    }
+
+    .slider {
+        flex: 1;
+    }
+
+    #slider1 {
+        order: 1; /* To specify the order of the first slider */
+    }
+
+    #deck-container {
+      width: 100vw;
+      height: 100vh;
+      margin: 0;
+    }
+
+  </style>
+</head>
+<body>
+  <div class="slider-container">
+    <label for="slider1">Column Radius:</label>
+    <input type="range" class="slider" id="slider1" min="1" max="100" value="50" step="1">
+  </div>
+  <div id="deck-container"></div>
+  <script src="./src/landsat/viz/index.js"></script>
+</body>
+</html>
