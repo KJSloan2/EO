@@ -1,7 +1,6 @@
 import os
 from os import listdir
 from os.path import isfile, join
-import time
 
 import csv
 import json
@@ -10,10 +9,12 @@ import numpy as np
 
 import rasterio as rio
 from rasterio.plot import show
+
+import time
 ######################################################################################
 '''Read parameters to get analysis location, year, etc.
 These parameters tell the program what files to read and how to process them'''
-analysis_parameters = json.load(open("%s%s" % (r"EO/00_resources/","analysis_parameters.json")))
+analysis_parameters = json.load(open("%s%s" % (r"00_resources/","analysis_parameters.json")))
 locationKey = analysis_parameters["location_key"]
 yearRange = [analysis_parameters["year_start"],analysis_parameters["year_end"]]
 analysis_version = analysis_parameters["analysis_version"]
@@ -80,18 +81,18 @@ for year in range(yearRange[0],yearRange[1]+1,1):
 '''Each tif name will be added to a txt file in the resoueces folder
 The txt file will inform other scipts which json files to analyize'''
 ######################################################################################
-folders_output = list(listdir(r"EO/02_output/"))
+folders_output = list(listdir(r"02_output/"))
 if locationKey not in folders_output:
-	folder_path = "%s%s" % (r"EO/02_output/",locationKey)
+	folder_path = "%s%s" % (r"02_output/",locationKey)
 	os.mkdir(folder_path)
-	os.mkdir("%s%s%s%s" % (r"EO/02_output/",locationKey,"/",analysis_version))
+	os.mkdir("%s%s%s%s" % (r"02_output/",locationKey,"/",analysis_version))
 elif locationKey in folders_output:
-	folder_path = "%s%s" % (r"EO/02_output/",locationKey)
+	folder_path = "%s%s" % (r"02_output/",locationKey)
 	if analysis_version not in list(listdir(folder_path)):
-		os.mkdir("%s%s%s%s" % (r"EO/02_output/",locationKey,"/",analysis_version))
+		os.mkdir("%s%s%s%s" % (r"02_output/",locationKey,"/",analysis_version))
 ######################################################################################
 analysis_parameters["processes_tifs"] = {}
-with open(r'EO/00_resources/processed_tifs.txt', 'w') as processedFiles:
+with open(r'00_resources/processed_tifs.txt', 'w') as processedFiles:
 	poolingWindow_size = 2
 	kernel_size = 5
 ######################################################################################
@@ -101,7 +102,7 @@ with open(r'EO/00_resources/processed_tifs.txt', 'w') as processedFiles:
 		fname_parsed = fName_oli.split("_")
 		year = str(fname_parsed[-1].split(".")[0])
 		#Bands: 'B1', 'B2', 'B3', 'B4', 'B5', 'B6', 'B7'
-		with rio.open("%s%s%s%s" % (r"EO/01_data/",locationKey,"/C02T1/",fName_oli)) as src_oli:
+		with rio.open("%s%s%s%s" % (r"01_data/",locationKey,"/C02T1/",fName_oli)) as src_oli:
 			src_width = src_oli.width
 			src_height = src_oli.height
 			print(f"Width: {src_width} pixels")
@@ -133,7 +134,7 @@ with open(r'EO/00_resources/processed_tifs.txt', 'w') as processedFiles:
 			#bb_width: 0.4417016252015742 bb_height: 0.39588754571147433 step_width: 0.0002694945852358598 step_height: -0.0002694945852358573
 
 		#Bands: 'ST_B10'
-		with rio.open("%s%s%s%s" % (r"EO/01_data/",locationKey,"/C02T1L2/",fName_tirs)) as src_tirs:
+		with rio.open("%s%s%s%s" % (r"01_data/",locationKey,"/C02T1L2/",fName_tirs)) as src_tirs:
 			src_width = src_oli.width
 			src_height = src_oli.height
 			print(f"Width: {src_width} pixels")
@@ -141,7 +142,7 @@ with open(r'EO/00_resources/processed_tifs.txt', 'w') as processedFiles:
 			b9_lst = src_tirs.read(1)
 
 			bands_pooled = {
-				"coordinates":[],"lstf":[],"lstf_range":[],"ndvi":[],
+				"coordinates":[], "lstf":[], "lstf_range":[], "ndvi":[], "rgb":[]
 			}
 			
 			gaussian = gaussian_kernel(kernel_size, sigma=1)
@@ -149,6 +150,8 @@ with open(r'EO/00_resources/processed_tifs.txt', 'w') as processedFiles:
 			lst_smoothed = np.array(lst_smoothed)
 
 			b4_red_smoothed =  np.array(apply_gaussian_kernel(b4_red, gaussian))
+			b3_green_smoothed =  np.array(apply_gaussian_kernel(b3_green, gaussian))
+			b2_blue_smoothed =  np.array(apply_gaussian_kernel(b2_blue, gaussian))
 			b5_nir_smoothed =  np.array(apply_gaussian_kernel(b5_nir, gaussian))
 
 			tempRanges = [
@@ -162,6 +165,7 @@ with open(r'EO/00_resources/processed_tifs.txt', 'w') as processedFiles:
 			bands_pooled["lstf"].append([])
 			bands_pooled["lstf_range"].append([])
 			bands_pooled["ndvi"].append([])
+			bands_pooled["rgb"].append([])
 			coord_x = bb_pt3[0]
 			for j in range(1,src_width-(poolingWindow_size+1),poolingWindow_size):
 				if coord_x > -96:
@@ -185,11 +189,21 @@ with open(r'EO/00_resources/processed_tifs.txt', 'w') as processedFiles:
 				b4_red_window = b4_red_smoothed[i:i + poolingWindow_size, j:j + poolingWindow_size]
 				b4_red_windowMean = np.mean(b4_red_window)
 
+				b3_green_window = b3_green_smoothed[i:i + poolingWindow_size, j:j + poolingWindow_size]
+				b3_green_windowMean =  np.mean(b3_green_window)
+				
+				b2_blue_window = b2_blue_smoothed[i:i + poolingWindow_size, j:j + poolingWindow_size]
+				b2_blue_windowMean =  np.mean(b2_blue_window)
+
 				b5_nir_window = b5_nir_smoothed[i:i + poolingWindow_size, j:j + poolingWindow_size]
 				b5_nir_windowMean = np.mean(b5_nir_window)
 
 				ndvi = float(round(((b5_nir_windowMean - b4_red_windowMean)/(b5_nir_windowMean + b4_red_windowMean)),3))
 				bands_pooled["ndvi"][-1].append(ndvi)
+
+				mean_rgb = [int(b4_red_windowMean), int(b3_green_windowMean), int(b2_blue_windowMean)]
+				bands_pooled["rgb"][-1].append(mean_rgb)
+
 				coord_x+=step_width	
 			coord_y+=step_height
 
@@ -198,7 +212,7 @@ with open(r'EO/00_resources/processed_tifs.txt', 'w') as processedFiles:
 ######################################################################################
 		output_fname = locationKey+"_"+year+"_"+analysis_version+".json"
 		processedFiles.write(f'{str(output_fname).split(".")[0]}\n')
-		output_path = "%s%s%s%s%s%s" % (r"EO/02_output/",locationKey,"/",analysis_version,"/",output_fname)
+		output_path = "%s%s%s%s%s%s" % (r"02_output/",locationKey,"/",analysis_version,"/",output_fname)
 		with open(output_path, "w", encoding='utf-8') as output_json:
 			output_json.write(json.dumps(bands_pooled, ensure_ascii=False))
 	processedFiles.close()
@@ -212,7 +226,7 @@ analysis_parameters["run_stats"] = {
 	"duration":duration
 	}
 
-with open("%s%s" % (r"EO/00_resources/","analysis_parameters.json"), "w", encoding='utf-8') as output_json:
+with open("%s%s" % (r"00_resources/","analysis_parameters.json"), "w", encoding='utf-8') as output_json:
     output_json.write(json.dumps(analysis_parameters, indent=2, ensure_ascii=False))
 
 ######################################################################################
