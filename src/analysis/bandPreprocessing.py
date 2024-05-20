@@ -1,16 +1,14 @@
 import os
 from os import listdir
 from os.path import isfile, join
+import time
 
-import csv
 import json
 
 import numpy as np
 
 import rasterio as rio
 from rasterio.plot import show
-
-import time
 ######################################################################################
 '''Read parameters to get analysis location, year, etc.
 These parameters tell the program what files to read and how to process them'''
@@ -113,6 +111,16 @@ with open(r'00_resources/processed_tifs.txt', 'w') as processedFiles:
 			b3_green = src_oli.read(3)
 			b2_blue = src_oli.read(2)
 
+			rgb_stack = np.stack((b4_red, b3_green, b2_blue), axis=-1)
+			rgb_stack = rgb_stack.astype(np.float32)
+			for i in range(3):
+				band_min, band_max = np.percentile(rgb_stack[:, :, i], (2, 98))
+				rgb_stack[:, :, i] = np.clip((rgb_stack[:, :, i] - band_min) / (band_max - band_min), 0, 1)
+			
+			red_8bit = rgb_stack[:, :, 0]
+			green_8bit = rgb_stack[:, :, 1]
+			blue_8bit = rgb_stack[:, :, 2]
+
 			src_bounds = src_oli.bounds
 			#BoundingBox(left=-97.07895646117163, bottom=32.59914300847014, right=-96.63725483597005, top=32.99503055418162)
 			bb_pt1 = [src_bounds[0],src_bounds[1]]
@@ -154,6 +162,10 @@ with open(r'00_resources/processed_tifs.txt', 'w') as processedFiles:
 			b2_blue_smoothed =  np.array(apply_gaussian_kernel(b2_blue, gaussian))
 			b5_nir_smoothed =  np.array(apply_gaussian_kernel(b5_nir, gaussian))
 
+			red_8bit_smoothed =  np.array(apply_gaussian_kernel(red_8bit, gaussian))
+			green_8bit_smoothed =  np.array(apply_gaussian_kernel(green_8bit, gaussian))
+			blue_8bit_smoothed =  np.array(apply_gaussian_kernel(blue_8bit, gaussian))
+
 			tempRanges = [
 				[50,59.99],[60,69.99],[70,79.99],[80,89.99],
 				[90,99.99],[100,109.99],[110,119.99],[120,129.99],
@@ -186,25 +198,26 @@ with open(r'00_resources/processed_tifs.txt', 'w') as processedFiles:
 
 				bands_pooled["lstf_range"][-1].append(lstf_range)
 
-				b4_red_window = b4_red_smoothed[i:i + poolingWindow_size, j:j + poolingWindow_size]
-				b4_red_windowMean = np.mean(b4_red_window)
+				def window_mean(band,window_size):
+					band_window = band[i:i + window_size, j:j + window_size]
+					band_window_mean = np.mean(band_window)
+					return band_window_mean
 
-				b3_green_window = b3_green_smoothed[i:i + poolingWindow_size, j:j + poolingWindow_size]
-				b3_green_windowMean =  np.mean(b3_green_window)
-				
-				b2_blue_window = b2_blue_smoothed[i:i + poolingWindow_size, j:j + poolingWindow_size]
-				b2_blue_windowMean =  np.mean(b2_blue_window)
-
-				b5_nir_window = b5_nir_smoothed[i:i + poolingWindow_size, j:j + poolingWindow_size]
-				b5_nir_windowMean = np.mean(b5_nir_window)
-
+				b4_red_windowMean = window_mean(b4_red_smoothed,poolingWindow_size)
+				b3_green_windowMean = window_mean(b3_green_smoothed,poolingWindow_size)
+				b2_blue_windowMean = window_mean(b2_blue_smoothed,poolingWindow_size)
+				b5_nir_windowMean = window_mean(b5_nir_smoothed,poolingWindow_size)
+				red_8bit_windowMean = window_mean(red_8bit_smoothed,poolingWindow_size)
+				green_8bit_windowMean = window_mean(green_8bit_smoothed,poolingWindow_size)
+				blue_8bit_windowMean = window_mean(blue_8bit_smoothed,poolingWindow_size)
+ 
 				ndvi = float(round(((b5_nir_windowMean - b4_red_windowMean)/(b5_nir_windowMean + b4_red_windowMean)),3))
 				bands_pooled["ndvi"][-1].append(ndvi)
 
-				mean_rgb = [int(b4_red_windowMean), int(b3_green_windowMean), int(b2_blue_windowMean)]
+				mean_rgb = [int(red_8bit_windowMean*256), int(green_8bit_windowMean*256), int(blue_8bit_windowMean*256)]
 				bands_pooled["rgb"][-1].append(mean_rgb)
 
-				coord_x+=step_width	
+				coord_x+=step_width
 			coord_y+=step_height
 
 		src_oli.close()
