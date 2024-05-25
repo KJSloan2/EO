@@ -1,14 +1,16 @@
 import os
 from os import listdir
 from os.path import isfile, join
-import time
 
+import csv
 import json
 
 import numpy as np
 
 import rasterio as rio
 from rasterio.plot import show
+
+import time
 ######################################################################################
 '''Read parameters to get analysis location, year, etc.
 These parameters tell the program what files to read and how to process them'''
@@ -90,145 +92,172 @@ elif locationKey in folders_output:
 		os.mkdir("%s%s%s%s" % (r"02_output/",locationKey,"/",analysis_version))
 ######################################################################################
 analysis_parameters["processes_tifs"] = {}
-with open(r'00_resources/processed_tifs.txt', 'w') as processedFiles:
-	poolingWindow_size = 2
-	kernel_size = 5
+#Make subdict for processed onboard land imager data
+analysis_parameters["processes_tifs"]["oli"] = {}
+#Make subdict for processed thermal infrared sensor data
+analysis_parameters["processes_tifs"]["tirs"] = {}
 ######################################################################################
-	for files in filesToProcess:
-		fName_oli = files[0]
-		fName_tirs = files[1]
-		fname_parsed = fName_oli.split("_")
-		year = str(fname_parsed[-1].split(".")[0])
-		#Bands: 'B1', 'B2', 'B3', 'B4', 'B5', 'B6', 'B7'
-		with rio.open("%s%s%s%s" % (r"01_data/",locationKey,"/C02T1/",fName_oli)) as src_oli:
-			src_width = src_oli.width
-			src_height = src_oli.height
-			print(f"Width: {src_width} pixels")
-			print(f"Height: {src_height} pixels")
 
-			b5_nir = src_oli.read(5)
-			b4_red = src_oli.read(4)
-			b3_green = src_oli.read(3)
-			b2_blue = src_oli.read(2)
-
-			rgb_stack = np.stack((b4_red, b3_green, b2_blue), axis=-1)
-			rgb_stack = rgb_stack.astype(np.float32)
-			for i in range(3):
-				band_min, band_max = np.percentile(rgb_stack[:, :, i], (2, 98))
-				rgb_stack[:, :, i] = np.clip((rgb_stack[:, :, i] - band_min) / (band_max - band_min), 0, 1)
-			
-			red_8bit = rgb_stack[:, :, 0]
-			green_8bit = rgb_stack[:, :, 1]
-			blue_8bit = rgb_stack[:, :, 2]
-
-			src_bounds = src_oli.bounds
-			#BoundingBox(left=-97.07895646117163, bottom=32.59914300847014, right=-96.63725483597005, top=32.99503055418162)
-			bb_pt1 = [src_bounds[0],src_bounds[1]]
-			bb_pt2 = [src_bounds[2],src_bounds[3]]
-			bb_width = bb_pt2[0] - bb_pt1[0]
-			bb_height = bb_pt2[1] - bb_pt1[1]
-
-			step_width = bb_width/(src_width/poolingWindow_size)
-			step_height = bb_height/(src_height/poolingWindow_size)*-1
-
-			bb_pt3 = [bb_pt1[0],bb_pt2[1]]
-			print(bb_pt3)
-			#-97.07895646117163, 32.99503055418162
-
-			print(
-				f"bb_width: {bb_width}",f"bb_height: {bb_height}",
-				f"step_width: {step_width}",f"step_height: {step_height}"
-			)
-			#bb_width: 0.4417016252015742 bb_height: 0.39588754571147433 step_width: 0.0002694945852358598 step_height: -0.0002694945852358573
-
-		#Bands: 'ST_B10'
-		with rio.open("%s%s%s%s" % (r"01_data/",locationKey,"/C02T1L2/",fName_tirs)) as src_tirs:
-			src_width = src_oli.width
-			src_height = src_oli.height
-			print(f"Width: {src_width} pixels")
-			print(f"Height: {src_height} pixels")
-			b9_lst = src_tirs.read(1)
-
-			bands_pooled = {
-				"coordinates":[], "lstf":[], "lstf_range":[], "ndvi":[], "rgb":[]
-			}
-			
-			gaussian = gaussian_kernel(kernel_size, sigma=1)
-			lst_smoothed = apply_gaussian_kernel(b9_lst, gaussian)
-			lst_smoothed = np.array(lst_smoothed)
-
-			b4_red_smoothed =  np.array(apply_gaussian_kernel(b4_red, gaussian))
-			b3_green_smoothed =  np.array(apply_gaussian_kernel(b3_green, gaussian))
-			b2_blue_smoothed =  np.array(apply_gaussian_kernel(b2_blue, gaussian))
-			b5_nir_smoothed =  np.array(apply_gaussian_kernel(b5_nir, gaussian))
-
-			red_8bit_smoothed =  np.array(apply_gaussian_kernel(red_8bit, gaussian))
-			green_8bit_smoothed =  np.array(apply_gaussian_kernel(green_8bit, gaussian))
-			blue_8bit_smoothed =  np.array(apply_gaussian_kernel(blue_8bit, gaussian))
-
-			tempRanges = [
-				[50,59.99],[60,69.99],[70,79.99],[80,89.99],
-				[90,99.99],[100,109.99],[110,119.99],[120,129.99],
-				[130,139.99]]
-			
-		coord_y = bb_pt3[1]
-		for i in range(1,src_height-(poolingWindow_size+1),poolingWindow_size):
-			bands_pooled["coordinates"].append([])
-			bands_pooled["lstf"].append([])
-			bands_pooled["lstf_range"].append([])
-			bands_pooled["ndvi"].append([])
-			bands_pooled["rgb"].append([])
-			coord_x = bb_pt3[0]
-			for j in range(1,src_width-(poolingWindow_size+1),poolingWindow_size):
-				if coord_x > -96:
-					print(coord_x,coord_y)
-
-				bands_pooled["coordinates"][-1].append([coord_x,coord_y])
-
-				lst_window = lst_smoothed[i:i + poolingWindow_size, j:j + poolingWindow_size]
-				lstf = float(round((np.mean(lst_window)),3))
-				bands_pooled["lstf"][-1].append(lstf)
-
-				lstf_range = None
-				for k in range(len(tempRanges)):
-					tempRange = tempRanges[k]
-					if tempRange[0] < lstf < tempRange[1]:
-						lstf_range = k
-						break
-
-				bands_pooled["lstf_range"][-1].append(lstf_range)
-
-				def window_mean(band,window_size):
-					band_window = band[i:i + window_size, j:j + window_size]
-					band_window_mean = np.mean(band_window)
-					return band_window_mean
-
-				b4_red_windowMean = window_mean(b4_red_smoothed,poolingWindow_size)
-				b3_green_windowMean = window_mean(b3_green_smoothed,poolingWindow_size)
-				b2_blue_windowMean = window_mean(b2_blue_smoothed,poolingWindow_size)
-				b5_nir_windowMean = window_mean(b5_nir_smoothed,poolingWindow_size)
-				red_8bit_windowMean = window_mean(red_8bit_smoothed,poolingWindow_size)
-				green_8bit_windowMean = window_mean(green_8bit_smoothed,poolingWindow_size)
-				blue_8bit_windowMean = window_mean(blue_8bit_smoothed,poolingWindow_size)
- 
-				ndvi = float(round(((b5_nir_windowMean - b4_red_windowMean)/(b5_nir_windowMean + b4_red_windowMean)),3))
-				bands_pooled["ndvi"][-1].append(ndvi)
-
-				mean_rgb = [int(red_8bit_windowMean*256), int(green_8bit_windowMean*256), int(blue_8bit_windowMean*256)]
-				bands_pooled["rgb"][-1].append(mean_rgb)
-
-				coord_x+=step_width
-			coord_y+=step_height
-
-		src_oli.close()
-		src_tirs.close()
+poolingWindow_size = 2
+kernel_size = 5
 ######################################################################################
-		output_fname = locationKey+"_"+year+"_"+analysis_version+".json"
-		processedFiles.write(f'{str(output_fname).split(".")[0]}\n')
-		output_path = "%s%s%s%s%s%s" % (r"02_output/",locationKey,"/",analysis_version,"/",output_fname)
-		with open(output_path, "w", encoding='utf-8') as output_json:
-			output_json.write(json.dumps(bands_pooled, ensure_ascii=False))
-	processedFiles.close()
+for files in filesToProcess:
+	fName_oli = files[0]
+	fName_tirs = files[1]
+	fname_parsed = fName_oli.split("_")
+	year = str(fname_parsed[-1].split(".")[0])
+	#Bands: 'B1', 'B2', 'B3', 'B4', 'B5', 'B6', 'B7'
+	with rio.open("%s%s%s%s" % (r"01_data/",locationKey,"/C02T1/",fName_oli)) as src_oli:
+		#Make a subdict to log runtime stats for the oli data'
+		start_time_oli = time.time()
+		analysis_parameters["processes_tifs"]["oli"][fName_oli] = {
+			"start_time":start_time_oli, "end_time":None, "duration":None}
+		
+		src_width = src_oli.width
+		src_height = src_oli.height
+		print(f"Width: {src_width} pixels")
+		print(f"Height: {src_height} pixels")
+
+		b5_nir = src_oli.read(5)
+		b4_red = src_oli.read(4)
+		b3_green = src_oli.read(3)
+		b2_blue = src_oli.read(2)
+
+		rgb_stack = np.stack((b4_red, b3_green, b2_blue), axis=-1)
+		rgb_stack = rgb_stack.astype(np.float32)
+		for i in range(3):
+			band_min, band_max = np.percentile(rgb_stack[:, :, i], (2, 98))
+			rgb_stack[:, :, i] = np.clip((rgb_stack[:, :, i] - band_min) / (band_max - band_min), 0, 1)
+		
+		red_8bit = rgb_stack[:, :, 0]
+		green_8bit = rgb_stack[:, :, 1]
+		blue_8bit = rgb_stack[:, :, 2]
+
+		src_bounds = src_oli.bounds
+		#BoundingBox(left=-97.07895646117163, bottom=32.59914300847014, right=-96.63725483597005, top=32.99503055418162)
+		bb_pt1 = [src_bounds[0],src_bounds[1]]
+		bb_pt2 = [src_bounds[2],src_bounds[3]]
+		bb_width = bb_pt2[0] - bb_pt1[0]
+		bb_height = bb_pt2[1] - bb_pt1[1]
+
+		step_width = bb_width/(src_width/poolingWindow_size)
+		step_height = bb_height/(src_height/poolingWindow_size)*-1
+
+		bb_pt3 = [bb_pt1[0],bb_pt2[1]]
+		print(bb_pt3)
+		#-97.07895646117163, 32.99503055418162
+
+		print(
+			f"bb_width: {bb_width}",f"bb_height: {bb_height}",
+			f"step_width: {step_width}",f"step_height: {step_height}"
+		)
+		#bb_width: 0.4417016252015742 bb_height: 0.39588754571147433 step_width: 0.0002694945852358598 step_height: -0.0002694945852358573
+
+	#Get the current time and calculate the runtime durration for processign the oli data. Add to runtime stats
+	end_time_oli = time.time()
+	duration_oli = end_time_oli - start_time_oli
+	analysis_parameters["processes_tifs"]["oli"][fName_oli]["end_time"] = end_time_oli
+	analysis_parameters["processes_tifs"]["oli"][fName_oli]["duration"] = duration_oli
+######################################################################################
+######################################################################################
+	with rio.open("%s%s%s%s" % (r"01_data/",locationKey,"/C02T1L2/",fName_tirs)) as src_tirs:
+		#Make a subdict to log runtime stats for the tirs data
+		start_time_tirs = time.time()
+		analysis_parameters["processes_tifs"]["tirs"][fName_tirs] = {
+			"start_time":start_time_tirs, "end_time":None, "duration":None}
+		
+		src_width = src_oli.width
+		src_height = src_oli.height
+		print(f"Width: {src_width} pixels")
+		print(f"Height: {src_height} pixels")
+		b9_lst = src_tirs.read(1)
+
+		bands_pooled = {
+			"coordinates":[], "lstf":[], "lstf_range":[], "ndvi":[], "rgb":[]
+		}
+		
+		gaussian = gaussian_kernel(kernel_size, sigma=1)
+		lst_smoothed = apply_gaussian_kernel(b9_lst, gaussian)
+		lst_smoothed = np.array(lst_smoothed)
+
+		b4_red_smoothed =  np.array(apply_gaussian_kernel(b4_red, gaussian))
+		b3_green_smoothed =  np.array(apply_gaussian_kernel(b3_green, gaussian))
+		b2_blue_smoothed =  np.array(apply_gaussian_kernel(b2_blue, gaussian))
+		b5_nir_smoothed =  np.array(apply_gaussian_kernel(b5_nir, gaussian))
+
+		red_8bit_smoothed =  np.array(apply_gaussian_kernel(red_8bit, gaussian))
+		green_8bit_smoothed =  np.array(apply_gaussian_kernel(green_8bit, gaussian))
+		blue_8bit_smoothed =  np.array(apply_gaussian_kernel(blue_8bit, gaussian))
+
+		tempRanges = [
+			[50,59.99],[60,69.99],[70,79.99],[80,89.99],
+			[90,99.99],[100,109.99],[110,119.99],[120,129.99],
+			[130,139.99]]
+		
+	coord_y = bb_pt3[1]
+	
+	#Get the current time and calculate the runtime durration for processign the tirs data. Add to runtime stats
+	end_time_tirs = time.time()
+	duration_tirs = end_time_tirs - start_time_tirs
+	analysis_parameters["processes_tifs"]["tirs"][fName_tirs]["end_time"] = end_time_tirs
+	analysis_parameters["processes_tifs"]["tirs"][fName_tirs]["duration"] = duration_tirs
+######################################################################################
+######################################################################################
+	for i in range(1,src_height-(poolingWindow_size+1),poolingWindow_size):
+		bands_pooled["coordinates"].append([])
+		bands_pooled["lstf"].append([])
+		bands_pooled["lstf_range"].append([])
+		bands_pooled["ndvi"].append([])
+		bands_pooled["rgb"].append([])
+		coord_x = bb_pt3[0]
+		for j in range(1,src_width-(poolingWindow_size+1),poolingWindow_size):
+			if coord_x > -96:
+				print(coord_x,coord_y)
+
+			bands_pooled["coordinates"][-1].append([coord_x,coord_y])
+
+			lst_window = lst_smoothed[i:i + poolingWindow_size, j:j + poolingWindow_size]
+			lstf = float(round((np.mean(lst_window)),3))
+			bands_pooled["lstf"][-1].append(lstf)
+
+			lstf_range = None
+			for k in range(len(tempRanges)):
+				tempRange = tempRanges[k]
+				if tempRange[0] < lstf < tempRange[1]:
+					lstf_range = k
+					break
+
+			bands_pooled["lstf_range"][-1].append(lstf_range)
+
+			def window_mean(band,window_size):
+				band_window = band[i:i + window_size, j:j + window_size]
+				band_window_mean = np.mean(band_window)
+				return band_window_mean
+
+			b4_red_windowMean = window_mean(b4_red_smoothed,poolingWindow_size)
+			b3_green_windowMean = window_mean(b3_green_smoothed,poolingWindow_size)
+			b2_blue_windowMean = window_mean(b2_blue_smoothed,poolingWindow_size)
+			b5_nir_windowMean = window_mean(b5_nir_smoothed,poolingWindow_size)
+			red_8bit_windowMean = window_mean(red_8bit_smoothed,poolingWindow_size)
+			green_8bit_windowMean = window_mean(green_8bit_smoothed,poolingWindow_size)
+			blue_8bit_windowMean = window_mean(blue_8bit_smoothed,poolingWindow_size)
+
+			ndvi = float(round(((b5_nir_windowMean - b4_red_windowMean)/(b5_nir_windowMean + b4_red_windowMean)),3))
+			bands_pooled["ndvi"][-1].append(ndvi)
+
+			mean_rgb = [int(red_8bit_windowMean*256), int(green_8bit_windowMean*256), int(blue_8bit_windowMean*256)]
+			bands_pooled["rgb"][-1].append(mean_rgb)
+
+			coord_x+=step_width
+		coord_y+=step_height
+
+	src_oli.close()
+	src_tirs.close()
+######################################################################################
+	output_fname = locationKey+"_"+year+"_"+analysis_version+".json"
+	output_path = "%s%s%s%s%s%s" % (r"02_output/",locationKey,"/",analysis_version,"/",output_fname)
+	with open(output_path, "w", encoding='utf-8') as output_json:
+		output_json.write(json.dumps(bands_pooled, ensure_ascii=False))
 
 end_time = time.time()
 duration = end_time - start_time
