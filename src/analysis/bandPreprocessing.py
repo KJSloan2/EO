@@ -11,6 +11,8 @@ import rasterio as rio
 from rasterio.plot import show
 
 import time
+
+import math
 ######################################################################################
 '''Read parameters to get analysis location, year, etc.
 These parameters tell the program what files to read and how to process them'''
@@ -67,6 +69,23 @@ def apply_gaussian_kernel(data, kernel):
 
 	return output_data
 ######################################################################################
+def haversine_meters(pt1, pt2):
+    # Radius of the Earth in meters
+    R = 6371000
+    # Convert latitude and longitude from degrees to radians'
+    lat1, lon1 = pt1[0], pt1[1]
+    lat2, lon2 = pt2[0], pt2[1]
+    phi1 = math.radians(lat1)
+    phi2 = math.radians(lat2)
+    delta_phi = math.radians(lat2 - lat1)
+    delta_lambda = math.radians(lon2 - lon1)
+    # Haversine formula
+    a = math.sin(delta_phi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(delta_lambda / 2) ** 2
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+    # Distance in meters
+    distance = R * c
+    return distance
+######################################################################################
 ###################################################################################### 
 #Set the names of all tifs to be analyized
 filesToProcess = []
@@ -96,6 +115,8 @@ analysis_parameters["processes_tifs"] = {}
 analysis_parameters["processes_tifs"]["oli"] = {}
 #Make subdict for processed thermal infrared sensor data
 analysis_parameters["processes_tifs"]["tirs"] = {}
+#Make subdict for processed elevation and slope data
+analysis_parameters["processes_tifs"]["3dep"] = {}
 ######################################################################################
 analysis_parameters["preprocessing_output"] = []
 poolingWindow_size = 2
@@ -115,6 +136,8 @@ for files in filesToProcess:
 		
 		src_width = src_oli.width
 		src_height = src_oli.height
+		analysis_parameters["processes_tifs"]["oli"][fName_oli]["width"] = src_width
+		analysis_parameters["processes_tifs"]["oli"][fName_oli]["height"] = src_width
 		print(f"Width: {src_width} pixels")
 		print(f"Height: {src_height} pixels")
 
@@ -144,6 +167,15 @@ for files in filesToProcess:
 		step_height = bb_height/(src_height/poolingWindow_size)*-1
 
 		bb_pt3 = [bb_pt1[0],bb_pt2[1]]
+		bb_pt4 = [bb_pt2[0],bb_pt1[1]]
+
+		analysis_parameters["processes_tifs"]["oli"][fName_oli]["bounding_box"] = {
+			"points":None, "edge_1_lenght":None, "edge_2_lenght":None}
+		
+		analysis_parameters["processes_tifs"]["oli"][fName_oli]["bounding_box"]["points"] = [bb_pt1, bb_pt2, bb_pt3, bb_pt4]
+		analysis_parameters["processes_tifs"]["oli"][fName_oli]["bounding_box"]["edge_1_lenght"] = haversine_meters(bb_pt1, bb_pt3)
+		analysis_parameters["processes_tifs"]["oli"][fName_oli]["bounding_box"]["edge_1_lenght"] = haversine_meters(bb_pt1, bb_pt4)
+
 		print(bb_pt3)
 		#-97.07895646117163, 32.99503055418162
 
@@ -168,6 +200,8 @@ for files in filesToProcess:
 		
 		src_width = src_oli.width
 		src_height = src_oli.height
+		analysis_parameters["processes_tifs"]["tirs"][fName_tirs]["width"] = src_width
+		analysis_parameters["processes_tifs"]["tirs"][fName_tirs]["height"] = src_width
 		print(f"Width: {src_width} pixels")
 		print(f"Height: {src_height} pixels")
 		b9_lst = src_tirs.read(1)
