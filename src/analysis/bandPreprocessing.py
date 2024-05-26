@@ -97,7 +97,7 @@ analysis_parameters["processes_tifs"]["oli"] = {}
 #Make subdict for processed thermal infrared sensor data
 analysis_parameters["processes_tifs"]["tirs"] = {}
 ######################################################################################
-
+analysis_parameters["preprocessing_output"] = []
 poolingWindow_size = 2
 kernel_size = 5
 ######################################################################################
@@ -258,6 +258,7 @@ for files in filesToProcess:
 	output_path = "%s%s%s%s%s%s" % (r"02_output/",locationKey,"/",analysis_version,"/",output_fname)
 	with open(output_path, "w", encoding='utf-8') as output_json:
 		output_json.write(json.dumps(bands_pooled, ensure_ascii=False))
+	analysis_parameters["preprocessing_output"].append(output_path)
 
 end_time = time.time()
 duration = end_time - start_time
