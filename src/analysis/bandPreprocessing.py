@@ -69,12 +69,12 @@ def apply_gaussian_kernel(data, kernel):
 
 	return output_data
 ######################################################################################
-def haversine_meters(pt1, pt2):
+def haversine(pt1, pt2):
     # Radius of the Earth in meters
     R = 6371000
-    # Convert latitude and longitude from degrees to radians'
-    lat1, lon1 = pt1[0], pt1[1]
-    lat2, lon2 = pt2[0], pt2[1]
+    # Convert latitude and longitude from degrees to radians
+    lat1, lon1 = pt1[1], pt1[0]
+    lat2, lon2 = pt2[1], pt2[0]
     phi1 = math.radians(lat1)
     phi2 = math.radians(lat2)
     delta_phi = math.radians(lat2 - lat1)
@@ -83,8 +83,13 @@ def haversine_meters(pt1, pt2):
     a = math.sin(delta_phi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(delta_lambda / 2) ** 2
     c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
     # Distance in meters
-    distance = R * c
-    return distance
+    dist_m = R * c
+    # Convert meters to feet
+    coef_ft = 3.28084
+    dist_ft = dist_m * coef_ft
+    # Convert feet to miles
+    dist_ml = round(dist_ft / 5280, 2)
+    return {"ft": dist_ft, "m": dist_m, "ml": dist_ml}
 ######################################################################################
 ###################################################################################### 
 #Set the names of all tifs to be analyized
@@ -157,6 +162,7 @@ for files in filesToProcess:
 		blue_8bit = rgb_stack[:, :, 2]
 
 		src_bounds = src_oli.bounds
+		print("BOUNDS: ", src_bounds)
 		#BoundingBox(left=-97.07895646117163, bottom=32.59914300847014, right=-96.63725483597005, top=32.99503055418162)
 		bb_pt1 = [src_bounds[0],src_bounds[1]]
 		bb_pt2 = [src_bounds[2],src_bounds[3]]
@@ -169,15 +175,18 @@ for files in filesToProcess:
 		bb_pt3 = [bb_pt1[0],bb_pt2[1]]
 		bb_pt4 = [bb_pt2[0],bb_pt1[1]]
 
+
 		analysis_parameters["processes_tifs"]["oli"][fName_oli]["bounding_box"] = {
 			"points":None, "edge_1_lenght":None, "edge_2_lenght":None}
 		
 		analysis_parameters["processes_tifs"]["oli"][fName_oli]["bounding_box"]["points"] = [bb_pt1, bb_pt2, bb_pt3, bb_pt4]
-		analysis_parameters["processes_tifs"]["oli"][fName_oli]["bounding_box"]["edge_1_lenght"] = haversine_meters(bb_pt1, bb_pt3)
-		analysis_parameters["processes_tifs"]["oli"][fName_oli]["bounding_box"]["edge_1_lenght"] = haversine_meters(bb_pt1, bb_pt4)
+		analysis_parameters["processes_tifs"]["oli"][fName_oli]["bounding_box"]["edge_1_lenght"] = haversine(bb_pt3, bb_pt1)["m"]
+		analysis_parameters["processes_tifs"]["oli"][fName_oli]["bounding_box"]["edge_2_lenght"] = haversine(bb_pt1, bb_pt4)["m"]
 
-		print(bb_pt3)
-		#-97.07895646117163, 32.99503055418162
+		print(
+			analysis_parameters["processes_tifs"]["oli"][fName_oli]["bounding_box"]["edge_1_lenght"],
+			analysis_parameters["processes_tifs"]["oli"][fName_oli]["bounding_box"]["edge_2_lenght"])
+
 
 		print(
 			f"bb_width: {bb_width}",f"bb_height: {bb_height}",
@@ -227,8 +236,6 @@ for files in filesToProcess:
 			[50,59.99],[60,69.99],[70,79.99],[80,89.99],
 			[90,99.99],[100,109.99],[110,119.99],[120,129.99],
 			[130,139.99]]
-		
-	coord_y = bb_pt3[1]
 	
 	#Get the current time and calculate the runtime durration for processign the tirs data. Add to runtime stats
 	end_time_tirs = time.time()
@@ -237,6 +244,7 @@ for files in filesToProcess:
 	analysis_parameters["processes_tifs"]["tirs"][fName_tirs]["duration"] = duration_tirs
 ######################################################################################
 ######################################################################################
+	coord_y = bb_pt3[1]
 	for i in range(1,src_height-(poolingWindow_size+1),poolingWindow_size):
 		bands_pooled["coordinates"].append([])
 		bands_pooled["lstf"].append([])
@@ -304,7 +312,7 @@ analysis_parameters["run_stats"] = {
 	}
 
 with open("%s%s" % (r"00_resources/","analysis_parameters.json"), "w", encoding='utf-8') as output_json:
-    output_json.write(json.dumps(analysis_parameters, indent=2, ensure_ascii=False))
+	output_json.write(json.dumps(analysis_parameters, indent=2, ensure_ascii=False))
 
 ######################################################################################
 print("DONE")
