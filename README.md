@@ -9,6 +9,7 @@ Landsat is a continuous series of earth observation satellite missions conducted
 ### 3DEP Elevation Data
 Earth Engine is also used to acquire elevation from the USGS 3DEP 10m National Map Seamless (1/3 Arc-Second) collection. 3Dep elevation data is preprocessed with local Python tools in this repo and integrated with Landsat data to map land surface temperature and vegetation data to 3D points (Lat, Lon, Elv) rather than just 2D (Lat, Lon) points.
 ![image](https://github.com/KJSloan2/EO/blob/main/00_resources/documentation/images/24071400_EO_DOC_3DepIso.png)
+H~2~O
 
 ### Spatial Resolutions
 Landsat 8 optical data from the OLI is 30 meters spatial resolution, Landsat 8 TIRS data is 100 meter spatial resolution and 3DEP elevation data is 10.2 meter spatial resolution. To reconcile different spatial resolutions between these data, special spatial aggregation functions were implemented in the band preprocessing tools. See documentation for bandPreprocessing.py for more information.
