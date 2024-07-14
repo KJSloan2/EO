@@ -6,4 +6,4 @@ Landsat is a continuous series of earth observation satellite missions conducted
 
 # 3DEP Elevation Data
 Earth Engine is also used to acquire elevation from the USGS 3DEP 10m National Map Seamless (1/3 Arc-Second) collection. 3Dep elevation data is preprocessed with local Python tools in this repo and integrated with Landsat data to map land surface temperature and vegetation data to 3D points (Lat, Lon, Elv) rather than just 2D (Lat, Lon) points.
-![image]([https://github.com/user-attachments/assets/fdcc96cc-49b8-4a7a-a66f-f044b5ac8c15](https://github.com/KJSloan2/EO/blob/main/00_resources/documentation/images/24071400_EO_DOC_3DepIso.png))
+![image](https://github.com/KJSloan2/EO/blob/main/00_resources/documentation/images/24071400_EO_DOC_3DepIso.png)
