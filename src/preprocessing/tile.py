@@ -78,17 +78,6 @@ def haversine_meters(pt1, pt2):
 	dist_ml = round((dist_ft/5280),2)
 	return {"ft":dist_ft, "m":dist_m, "ml":dist_ml}
 ######################################################################################
-def update_point(pt, movement):
-	latitude, longitude = (pt[0], pt[1])
-	distance_east_meters, distance_south_meters = (movement[0], movement[1])
-	# Create a Point object for the starting location
-	start_point = Point(latitude, longitude)
-	# Move the point to the east (90 degrees) by the specified distance
-	east_point = distance(meters=distance_east_meters).destination(point=start_point, bearing=90)
-	# Move the resulting point to the south (180 degrees) by the specified distance
-	final_point = distance(meters=distance_south_meters).destination(point=east_point, bearing=180)
-	return final_point.latitude, final_point.longitude
-######################################################################################
 ################################# GET PARAMETERS #####################################
 ######################################################################################
 analysis_parameters = json.load(open("%s%s" % (r"00_resources/","analysis_parameters.json")))
@@ -103,14 +92,15 @@ tile_folders = list_folders(dir_path)
 ######################################################################################
 uri = "mongodb+srv://kjsloan2:dji3iniMpResidi0ZdrOne@cluster0.ql0cic1.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
 # Create a new client and connect to the server
-client = MongoClient(uri, server_api=ServerApi('1'))
+#client = MongoClient(uri, server_api=ServerApi('1'))
 # Send a ping to confirm a successful connection
 
 #query = {"FEATURE_CLASS": "Airport"}
 analysis_parameters = json.load(open("%s%s" % (r"00_resources/","analysis_parameters.json")))
 
 usgs_features = []
-try:
+'''try:
+	client = MongoClient(uri, server_api=ServerApi('1'))
 	client.admin.command('ping')
 	db = client['usgs']
 	collection = db['features_tx']
@@ -119,8 +109,8 @@ try:
 
 	# Step 5: Print the documents
 	for document in documents:
-		'''for key, value in document.items():
-			print(key, value)'''
+		#for key, value in document.items():
+		#	print(key, value)
 		propKeys = ['FEATURE_ID', 'FEATURE_NAME' ,'FEATURE_CLASS', 'COUNTY_NAME', 'ELEV_IN_FT']
 		featureObj = {}
 		for propKey in propKeys:
@@ -129,7 +119,7 @@ try:
 
 		print('\n')
 except Exception as e:
-	print(e)
+	print(e)'''
 
 '''if features have successuflly been added from the MongoDb database,
 	set has_usgsFeatures to True. This controls wheather to look for usgs features
@@ -142,6 +132,17 @@ else:
 ######################################################################################
 ################################ TILE RASTER #########################################
 ######################################################################################
+def update_point(pt, movement):
+	latitude, longitude = (pt[0], pt[1])
+	distance_east_meters, distance_south_meters = (movement[1], movement[0])
+	# Create a Point object for the starting location
+	start_point = Point(latitude, longitude)
+	# Move the point to the east (90 degrees) by the specified distance
+	east_point = distance(meters=distance_east_meters).destination(point=start_point, bearing=90)
+	# Move the resulting point to the south (180 degrees) by the specified distance
+	final_point = distance(meters=distance_south_meters).destination(point=east_point, bearing=180)
+	return final_point.latitude, final_point.longitude
+
 cellsize = 1000
 for year in years:
 
@@ -150,7 +151,6 @@ for year in years:
 		create_folder(dir_path, str(year) )
 		create_folder(dirpath_year, "jpgs")
 		create_folder(dirpath_year, "geoTiffs")
-
 
 	analysis_parameters_tiles[locationKey] = {year:{}}
 	fName_oli = locationKey+"_L8_COMP_OLI_"+str(year)+".tif"
@@ -162,109 +162,120 @@ for year in years:
 		print(f"Height: {src_height} pixels")
 		print(f"Coordinate Reference System: {src_crs}")
 
-		cell_shape = [math.floor(src_width / cellsize), math.floor(src_height / cellsize)]
-		print(f"Cells in X and Y: {cell_shape}")
+		tiles_shape = [math.floor(src_width / cellsize), math.floor(src_height / cellsize)]
+		print(f"Cells in X and Y: {tiles_shape}")
 		src_bounds = src_oli.bounds
 
+		#bb_pt1: SW
 		bb_pt1 = [src_bounds[0], src_bounds[1]]
+		#bb_pt2: NE
 		bb_pt2 = [src_bounds[2], src_bounds[3]]
+		#bb_pt3: SE
 		bb_pt3 = [bb_pt1[0], bb_pt2[1]]
+		#bb_pt4: NW
 		bb_pt4 = [bb_pt2[0], bb_pt1[1]]
 
 		#print(bb_pt1, bb_pt2, bb_pt3, bb_pt4)
-
 		bb_width = bb_pt2[0] - bb_pt1[0]
 		bb_height = bb_pt2[1] - bb_pt1[1]
 
-		distEW = haversine_meters(bb_pt1, bb_pt4)["m"]
-		distNS = haversine_meters(bb_pt1, bb_pt3)["m"]
-		print(distEW, distNS)
+		bb_height = haversine_meters(bb_pt1, bb_pt3)["m"]
+		bb_width = haversine_meters(bb_pt1, bb_pt4)["m"]
 
+		metersPerPixelWidth = float(bb_width/src_width)
+		metersPerPixelHeight = float(bb_height/src_height)
+
+		movement = [(metersPerPixelHeight*cellsize), (metersPerPixelWidth*cellsize)]
+		
 		step_width = bb_width / (src_width / cellsize)
 		step_height = bb_height / (src_height / cellsize) * -1
-	######################################################################################
 
-		coord_y = bb_pt3[1]
-		for i in range(cell_shape[1]):
-			#coord_x reset to x val of pt3 at start of new i loop
-			coord_x = bb_pt3[0]
-			iIdx = i * cellsize
-			cell_pt1 = [coord_x, coord_y]
-			cell_pt2 = [coord_x+cellsize, coord_y]
-			cell_pt3 = [coord_x+cellsize, coord_y+cellsize]
-			cell_pt4 = [coord_x, coord_y+cellsize]
+		print(movement)
+		print(tiles_shape)
 
-			#make a shapley polygon with the bounding box coodinates
-			bb_polygon = Polygon([
-				(cell_pt1[0],cell_pt1[1]),
-				(cell_pt2[0],cell_pt2[1]),
-				(cell_pt3[0],cell_pt3[1]),
-				(cell_pt4[0],cell_pt4[1])
-				])
-			
-			#iterate over usgs features. Test if feature is in bb_polygon
-			if has_usgsFeatures == True:
-				for  featureObj in usgs_features:
-					pt = Point(featureObj['PRIM_LAT_DEC'], featureObj['PRIM_LON_DEC'])
-			for j in range(cell_shape[0]):
-				jIdx = j * cellsize
-				bands = []
-				for band_idx in [1, 2, 3]:
-					band = src_oli.read(band_idx)
-					cell = np.array(band[iIdx:iIdx + cellsize, jIdx:jIdx + cellsize])
+		lat_start = bb_pt3[1]
+		lon_start = bb_pt3[0]
+		for i in range(tiles_shape[1]):
+			iIdx = i*cellsize
+			for j in range(tiles_shape[0]):
+				jIdx = j*cellsize
+				bb_pt_nw = [lat_start, lon_start]
+				bb_pt_se = update_point(bb_pt_nw, movement)
+				bb_pt_sw = [bb_pt_se[0],bb_pt_nw[1]]
+				bb_pt_ne = [bb_pt_nw[0],bb_pt_se[1]]
 
-					h_, bin_ = np.histogram(cell[np.isfinite(cell)].flatten(), 3000, density=True)
-					cdf = h_.cumsum()  # cumulative distribution function
-					cdf = 3000 * cdf / cdf[-1]  # normalize
+				print([lon_start, lat_start])
+				print([bb_pt_se[1],bb_pt_se[0]])
 
-					band_equalized = np.interp(cell.flatten(), bin_[:-1], cdf)
-					band_equalized = band_equalized.reshape(cell.shape)
+				lon_start = bb_pt_se[1]
 
-					bands.append(band_equalized)
-
-				band_data = np.stack(bands, axis=0)
-
-				band_data = band_data / 3000
-				band_data = band_data.clip(0, 1)
-				band_data = np.transpose(band_data, [1, 2, 0])
-
-				plt.imshow(band_data, interpolation='nearest')
-				plt.axis('off')
-
-				tileId = str(i) + "-" + str(j)
-
-				analysis_parameters_tiles[locationKey][year][tileId] = {
-					"geometry": {"pt_1":cell_pt1, "pt_2":cell_pt2, "pt_3":cell_pt3, "pt_4":cell_pt4}
-				}
+				#make a shapley polygon with the bounding box coodinates
+				bb_polygon = Polygon([
+					(bb_pt_nw[0],bb_pt_nw[1]),
+					(bb_pt_ne[0],bb_pt_ne[1]),
+					(bb_pt_se[0],bb_pt_se[1]),
+					(bb_pt_sw[0],bb_pt_sw[1])
+					])
 				
-				transform = from_origin(0, cellsize, 1, 1)
-				tiff_output_path = "%s%s%s" % (dir_path, str(year)+"/geoTiffs/", locationKey+"_"+str(year)+"_"+tileId+".tif")
+				if has_usgsFeatures == True:
+					for  featureObj in usgs_features:
+						pt = Point(featureObj['PRIM_LAT_DEC'], featureObj['PRIM_LON_DEC'])
 
-				with rio.open( 
-					tiff_output_path,
-					'w',
-					driver='GTiff',
-					height=cellsize,
-					width=cellsize,
-					count=len(bands),
-					dtype=band_data.dtype,
-					crs=src_crs,
-					transform=transform
-				) as dst:
-					for band_idx, band in enumerate(bands, start=1):
-						dst.write(band, band_idx)
+					bands = []
+					for band_idx in [1, 2, 3]:
+						band = src_oli.read(band_idx)
+						cell = np.array(band[iIdx:iIdx + cellsize, jIdx:jIdx + cellsize])
 
-				#jpg_output_path = output_path.replace('.tif', '.jpg')
-				jpg_output_path = "%s%s%s" % (dir_path, str(year)+"/jpgs/", locationKey+"_"+str(year)+"_"+tileId + ".jpg")
-				plt.savefig(jpg_output_path, format='jpg', bbox_inches='tight', pad_inches=0, dpi=300)
+						h_, bin_ = np.histogram(cell[np.isfinite(cell)].flatten(), 3000, density=True)
+						cdf = h_.cumsum()  # cumulative distribution function
+						cdf = 3000 * cdf / cdf[-1]  # normalize
 
-				plt.pause(0.05)  # Pause for 0.25 seconds
-				plt.close()
+						band_equalized = np.interp(cell.flatten(), bin_[:-1], cdf)
+						band_equalized = band_equalized.reshape(cell.shape)
 
-				coord_x += cellsize
-			coord_y += cellsize
-######################################################################################
-################################ UPDATE PARAMETERS ###################################
-######################################################################################
+						bands.append(band_equalized)	
+
+					band_data = np.stack(bands, axis=0)
+
+					band_data = band_data / 3000
+					band_data = band_data.clip(0, 1)
+					band_data = np.transpose(band_data, [1, 2, 0])
+
+					plt.imshow(band_data, interpolation='nearest')
+					plt.axis('off')
+
+					tileId = str(i) + "-" + str(j)
+
+					analysis_parameters_tiles[locationKey][year][tileId] = {
+						"geometry": {"pt_nw":bb_pt_nw, "pt_ne":bb_pt_ne, "pt_se":bb_pt_se, "pt_sw":bb_pt_sw}
+					}
+					
+					transform = from_origin(0, cellsize, 1, 1)
+					tiff_output_path = "%s%s%s" % (dir_path, str(year)+"/geoTiffs/", locationKey+"_"+str(year)+"_"+tileId+".tif")
+
+					with rio.open( 
+						tiff_output_path,
+						'w',
+						driver='GTiff',
+						height=cellsize,
+						width=cellsize,
+						count=len(bands),
+						dtype=band_data.dtype,
+						crs=src_crs,
+						transform=transform
+					) as dst:
+						for band_idx, band in enumerate(bands, start=1):
+							dst.write(band, band_idx)
+
+					#jpg_output_path = output_path.replace('.tif', '.jpg')
+					jpg_output_path = "%s%s%s" % (dir_path, str(year)+"/jpgs/", locationKey+"_"+str(year)+"_"+tileId + ".jpg")
+					plt.savefig(jpg_output_path, format='jpg', bbox_inches='tight', pad_inches=0, dpi=300)
+
+					plt.pause(0.05)  # Pause for 0.25 seconds
+					plt.close()
+
+			lon_start = bb_pt3[0]
+			lat_start = bb_pt_se[0]
+
 with open("%s%s" % (r"00_resources/","analysis_parameters.json"), "w", encoding='utf-8') as output_json:
 	output_json.write(json.dumps(analysis_parameters, indent=2, ensure_ascii=False))
