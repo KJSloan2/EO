@@ -1,32 +1,63 @@
+function downloadResults(results, regionId) {
+    const csvContent = "data:text/csv;charset=utf-8," 
+        + "LPST ID,Regulated Entity Number,Reported Date,Closure Date,Street_Address,City,County,State,ZipCode,Latitude,Longitude\n" 
+        + results.join("\n");
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    const fNameDownload = regionId + "_geocoded_addresses.csv";
+    link.setAttribute("download", fNameDownload);
+    document.body.appendChild(link); // Required for FF
+
+    link.click(); // This will download the file
+}
+
+
 document.getElementById('csvFileInput').addEventListener('change', function(event) {
     const file = event.target.files[0];
-    const reader = new FileReader();
 
-    reader.onload = function(e) {
-        const text = e.target.result;
-        processCSV(text);
-    };
+    // Get the filename, strip the file extension, split with "_", and store the last element in regionId
+    const filename = file.name;
+    const filenameWithoutExtension = filename.substring(0, filename.lastIndexOf('.'));
+    const filenameParts = filenameWithoutExtension.split('_');
+    const regionId = filenameParts[filenameParts.length - 1];
 
-    reader.readAsText(file);
+    console.log("Region ID:", regionId); // Just to verify
+
+    Papa.parse(file, {
+        header: true,
+        skipEmptyLines: true,
+        complete: function(results) {
+            processCSV(results.data, regionId);
+        }
+    });
 });
 
-function processCSV(csvText) {
-    const rows = csvText.split('\n');
+function processCSV(data, regionId) {
     let results = [];
+    let pendingRequests = 0;
 
-    rows.forEach((row, index) => {
-        if (index > 0 && row) { // Skip header or empty rows
-            const columns = row.split(','); // Assuming CSV is comma-separated
-            const address_parts = [columns[4],columns[6],"TX",columns[8]];
-            //adress_parts example input: [2803 AVE H, LUBBOCK, TX, 79404]
+    data.forEach((row) => {
+        const { 'LPST ID': lpstId, 'Regulated Entity Number': regEntityNumPst, 'Reported Date': reportedDate, 'Closure Date': closureDate, 'Site Address': siteAddress, 'City': city, 'County': county, 'Zip Code': zipCode } = row;
+        const state = "TX";
+        const address_parts = [siteAddress, city, county, state, zipCode];
+
+        if (address_parts.every(part => part !== null && part !== undefined && part !== '')) {
             const address = address_parts.join(",");
-
+            pendingRequests++;
             geocodeAddress(address, (coords) => {
-                results.push(`${address},${coords.lat},${coords.lng}`);
-                if (results.length === rows.length - 1) { // -1 to account for header
-                    downloadResults(results);
+                if (coords.lat && coords.lng) {
+                    results.push(`${lpstId},${regEntityNumPst},${reportedDate},${closureDate},${siteAddress},${city},${county},${state},${zipCode},${coords.lat},${coords.lng}`);
+                } else {
+                    results.push(`${lpstId},${regEntityNumPst},${reportedDate},${closureDate},${siteAddress},${city},${county},${state},${zipCode},,`); // No coordinates
+                }
+                pendingRequests--;
+                if (pendingRequests === 0) {
+                    downloadResults(results, regionId);
                 }
             });
+        } else {
+            console.log("One or more address parts are null or undefined.");
         }
     });
 }
@@ -36,19 +67,26 @@ function geocodeAddress(address, callback) {
     const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(address)}.json?access_token=${accessToken}`;
 
     fetch(url).then(response => response.json()).then(data => {
-        const coords = data.features[0].geometry.coordinates;
-        callback({ lng: coords[0], lat: coords[1] });
+        if (data.features && data.features.length > 0) {
+            const coords = data.features[0].geometry.coordinates;
+            callback({ lng: coords[0], lat: coords[1] });
+        } else {
+            callback({ lng: null, lat: null });
+        }
+    }).catch(() => {
+        callback({ lng: null, lat: null });
     });
 }
 
-function downloadResults(results) {
+function downloadResults(results, regionId) {
     const csvContent = "data:text/csv;charset=utf-8," 
-        + "Address,City,State,Zip Code,Latitude,Longitude\n" 
+        + "LPST ID,Regulated Entity Number,Reported Date,Closure Date,Street_Address,City,County,State,ZipCode,Latitude,Longitude\n" 
         + results.join("\n");
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
     link.setAttribute("href", encodedUri);
-    link.setAttribute("download", "geocoded_addresses.csv");
+    const fNameDownload = regionId + "_geocoded_addresses.csv";
+    link.setAttribute("download", fNameDownload);
     document.body.appendChild(link); // Required for FF
 
     link.click(); // This will download the file
