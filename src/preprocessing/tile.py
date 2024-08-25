@@ -7,6 +7,7 @@ import numpy as np
 import rasterio as rio
 from rasterio.plot import show
 from rasterio.transform import from_origin
+from rasterio.windows import Window
 
 import math
 
@@ -23,7 +24,9 @@ from geopy.point import Point
 
 from pymongo.mongo_client import MongoClient
 from pymongo.server_api import ServerApi
+
 ######################################################################################
+locationKey = "A0"
 ############################### GLOBAL FUNCTIONS #####################################
 ######################################################################################
 def list_folders(directory):
@@ -34,8 +37,20 @@ def list_folders(directory):
 		folders = [item for item in items if os.path.isdir(os.path.join(directory, item))]
 		return folders
 	except Exception as e:
-		print(f"An error occurred: {e}")
+		print(f"Error (list_folders): {e}")
 		return []
+######################################################################################
+def list_files(directory):
+    try:
+        # List all files and directories in the given directory
+        files = [f for f in os.listdir(directory) if os.path.isfile(os.path.join(directory, f))]
+        return files
+    except FileNotFoundError:
+        print(f"Directory not found: {directory}")
+        return []
+    except PermissionError:
+        print(f"Permission denied: {directory}")
+        return []
 ######################################################################################
 def create_folder(directory, folder_name):
 	try:
@@ -45,7 +60,7 @@ def create_folder(directory, folder_name):
 		os.makedirs(folder_path, exist_ok=True)
 		print(f"Folder '{folder_name}' created successfully in '{directory}'.")
 	except Exception as e:
-		print(f"An error occurred: {e}")
+		print(f"Error (create_folder): {e}")
 ######################################################################################
 def get_tiff_dimensions(file_path):
 	'''Gets the bounds and dimensions of a given geoTiff file'''
@@ -55,7 +70,7 @@ def get_tiff_dimensions(file_path):
 			height = src.height
 		return width, height
 	except Exception as e:
-		print(f"Error: {e}")
+		print(f"Error (get_tiff_dimensions): {e}")
 		return None
 ######################################################################################
 def haversine_meters(pt1, pt2):
@@ -78,16 +93,8 @@ def haversine_meters(pt1, pt2):
 	dist_ml = round((dist_ft/5280),2)
 	return {"ft":dist_ft, "m":dist_m, "ml":dist_ml}
 ######################################################################################
-################################# GET PARAMETERS #####################################
 ######################################################################################
-analysis_parameters = json.load(open("%s%s" % (r"00_resources/","analysis_parameters.json")))
-analysis_parameters_tiles = analysis_parameters['tiles']
-######################################################################################
-locationKey = "transPecos_tx"
-years = [2013]
-dir_path = "%s%s%s" % (r"01_data/", locationKey, "/C02T1/tiles/")
-tile_folders = list_folders(dir_path)
-######################################################################################
+logJson = json.load(open("%s%s" % (r"00_resources/",locationKey+"_"+"log.json")))
 ############################### MONGODB CONNECTION ###################################
 ######################################################################################
 uri = "mongodb+srv://kjsloan2:dji3iniMpResidi0ZdrOne@cluster0.ql0cic1.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
@@ -96,10 +103,10 @@ uri = "mongodb+srv://kjsloan2:dji3iniMpResidi0ZdrOne@cluster0.ql0cic1.mongodb.ne
 # Send a ping to confirm a successful connection
 
 #query = {"FEATURE_CLASS": "Airport"}
-analysis_parameters = json.load(open("%s%s" % (r"00_resources/","analysis_parameters.json")))
 
 usgs_features = []
-'''try:
+
+try:
 	client = MongoClient(uri, server_api=ServerApi('1'))
 	client.admin.command('ping')
 	db = client['usgs']
@@ -116,13 +123,13 @@ usgs_features = []
 		for propKey in propKeys:
 			featureObj[propKey] = document[propKey]
 		usgs_features.append(featureObj)
-
 		print('\n')
 except Exception as e:
-	print(e)'''
+	print(e)
+	pass
 
-'''if features have successuflly been added from the MongoDb database,
-	set has_usgsFeatures to True. This controls wheather to look for usgs features
+'''if features have successfully been added from the MongoDb database,
+	set has_usgsFeatures to True. This controls whether to look for usgs features
 	in the ROI bounding box later'''
 
 if len(usgs_features) != 0:
@@ -142,37 +149,58 @@ def update_point(pt, movement):
 	# Move the resulting point to the south (180 degrees) by the specified distance
 	final_point = distance(meters=distance_south_meters).destination(point=east_point, bearing=180)
 	return final_point.latitude, final_point.longitude
+######################################################################################
+######################################################################################
+'''Create a list of files from the given data directory
+Read each file name, check if it is a .tif.
+If file is a tif, store file year. Sort years, log start and end year'''
+files = list_files("%s%s" % (r"01_data/", locationKey))
+years = []
+for f in files:
+	f_split = f.split(".")
+	if f_split[-1] == "tif":
+		#print(f_split)
+		years.append(int((f_split[0].split("_"))[1]))
+years_argSort = np.argsort(years)
+year_start = years[years_argSort[0]]
+year_end = years[years_argSort[-1]]
+years_sorted = list(map(lambda idx: years[idx], years_argSort))
+logJson["year_start"] = year_start
+logJson["year_end"] = year_end
 
-cellsize = 1000
+data_dir_path = "%s%s%s" % (r"01_data/", locationKey, "/tiles/")
+tile_folders = list_folders(data_dir_path)
 for year in years:
-
+	# Check that each year of data has a folder created.
 	if str(year) not in tile_folders:
-		dirpath_year = dir_path+"/"+str(year)
-		create_folder(dir_path, str(year) )
+		# If a folder for the year does not exist, make one
+		dirpath_year = data_dir_path + "/" + str(year)
+		create_folder(data_dir_path, str(year))
 		create_folder(dirpath_year, "jpgs")
 		create_folder(dirpath_year, "geoTiffs")
-
-	analysis_parameters_tiles[locationKey] = {year:{}}
-	fName_oli = locationKey+"_L8_COMP_OLI_"+str(year)+".tif"
-	with rio.open("%s%s%s%s" % (r"01_data/", locationKey, "/C02T1/", fName_oli)) as src_oli:
-		src_crs = src_oli.crs
-		src_width = src_oli.width
-		src_height = src_oli.height
+	##################################################################################
+	logJson['tiles'][year] = {}
+	fName_oli = locationKey + "_" + str(year) + ".tif"
+	cellsize = 300
+	with rio.open("%s%s%s%s" % (r"01_data/", locationKey, "/", fName_oli)) as src:
+		src_crs = src.crs
+		src_width = src.width
+		src_height = src.height
 		print(f"Width: {src_width} pixels")
 		print(f"Height: {src_height} pixels")
 		print(f"Coordinate Reference System: {src_crs}")
 
 		tiles_shape = [math.floor(src_width / cellsize), math.floor(src_height / cellsize)]
 		print(f"Cells in X and Y: {tiles_shape}")
-		src_bounds = src_oli.bounds
+		src_bounds = src.bounds
 
-		#bb_pt1: SW
+		# bb_pt1: SW
 		bb_pt1 = [src_bounds[0], src_bounds[1]]
-		#bb_pt2: NE
+		# bb_pt2: NE
 		bb_pt2 = [src_bounds[2], src_bounds[3]]
-		#bb_pt3: SE
+		# bb_pt3: SE
 		bb_pt3 = [bb_pt1[0], bb_pt2[1]]
-		#bb_pt4: NW
+		# bb_pt4: NW
 		bb_pt4 = [bb_pt2[0], bb_pt1[1]]
 
 		#print(bb_pt1, bb_pt2, bb_pt3, bb_pt4)
@@ -182,10 +210,10 @@ for year in years:
 		bb_height = haversine_meters(bb_pt1, bb_pt3)["m"]
 		bb_width = haversine_meters(bb_pt1, bb_pt4)["m"]
 
-		metersPerPixelWidth = float(bb_width/src_width)
-		metersPerPixelHeight = float(bb_height/src_height)
+		metersPerPixelWidth = float(bb_width / src_width)
+		metersPerPixelHeight = float(bb_height / src_height)
 
-		movement = [(metersPerPixelHeight*cellsize), (metersPerPixelWidth*cellsize)]
+		movement = [(metersPerPixelHeight * cellsize), (metersPerPixelWidth * cellsize)]
 		
 		step_width = bb_width / (src_width / cellsize)
 		step_height = bb_height / (src_height / cellsize) * -1
@@ -196,86 +224,96 @@ for year in years:
 		lat_start = bb_pt3[1]
 		lon_start = bb_pt3[0]
 		for i in range(tiles_shape[1]):
-			iIdx = i*cellsize
+			iIdx = i * cellsize
 			for j in range(tiles_shape[0]):
-				jIdx = j*cellsize
+				jIdx = j * cellsize
 				bb_pt_nw = [lat_start, lon_start]
 				bb_pt_se = update_point(bb_pt_nw, movement)
-				bb_pt_sw = [bb_pt_se[0],bb_pt_nw[1]]
-				bb_pt_ne = [bb_pt_nw[0],bb_pt_se[1]]
+				bb_pt_sw = [bb_pt_se[0], bb_pt_nw[1]]
+				bb_pt_ne = [bb_pt_nw[0], bb_pt_se[1]]
 
 				print([lon_start, lat_start])
-				print([bb_pt_se[1],bb_pt_se[0]])
+				print([bb_pt_se[1], bb_pt_se[0]])
 
 				lon_start = bb_pt_se[1]
 
-				#make a shapley polygon with the bounding box coodinates
+				# Make a shapley polygon with the bounding box coordinates
 				bb_polygon = Polygon([
-					(bb_pt_nw[0],bb_pt_nw[1]),
-					(bb_pt_ne[0],bb_pt_ne[1]),
-					(bb_pt_se[0],bb_pt_se[1]),
-					(bb_pt_sw[0],bb_pt_sw[1])
-					])
+					(bb_pt_nw[0], bb_pt_nw[1]),
+					(bb_pt_ne[0], bb_pt_ne[1]),
+					(bb_pt_se[0], bb_pt_se[1]),
+					(bb_pt_sw[0], bb_pt_sw[1])
+				])
 				
-				if has_usgsFeatures == True:
-					for  featureObj in usgs_features:
+				if has_usgsFeatures:
+					for featureObj in usgs_features:
 						pt = Point(featureObj['PRIM_LAT_DEC'], featureObj['PRIM_LON_DEC'])
 
-					bands = []
-					for band_idx in [1, 2, 3]:
-						band = src_oli.read(band_idx)
-						cell = np.array(band[iIdx:iIdx + cellsize, jIdx:jIdx + cellsize])
+				bands = []
+				for band_idx in range(1, src.count + 1):
+					band = src.read(band_idx)
+					cell = np.array(band[iIdx:iIdx + cellsize, jIdx:jIdx + cellsize])
+					cell_reshape = cell.reshape(cell.shape)
+					bands.append(cell_reshape.reshape(cell.shape))
+				band_data = np.stack(bands, axis=0)
 
-						h_, bin_ = np.histogram(cell[np.isfinite(cell)].flatten(), 3000, density=True)
-						cdf = h_.cumsum()  # cumulative distribution function
-						cdf = 3000 * cdf / cdf[-1]  # normalize
+				bands_viz = []
+				for band_idx in [4, 3, 2]:
+					band = src.read(band_idx)
+					cell = np.array(band[iIdx:iIdx + cellsize, jIdx:jIdx + cellsize])
 
-						band_equalized = np.interp(cell.flatten(), bin_[:-1], cdf)
-						band_equalized = band_equalized.reshape(cell.shape)
+					# Histogram equalization (optional)
+					h_, bin_ = np.histogram(cell[np.isfinite(cell)].flatten(), 3000, density=True)
+					cdf = h_.cumsum()  # cumulative distribution function
+					cdf = 3000 * cdf / cdf[-1]  # normalize
 
-						bands.append(band_equalized)	
+					band_equalized = np.interp(cell.flatten(), bin_[:-1], cdf)
+					band_equalized = band_equalized.reshape(cell.shape)
 
-					band_data = np.stack(bands, axis=0)
+					bands_viz.append(band_equalized)
 
-					band_data = band_data / 3000
-					band_data = band_data.clip(0, 1)
-					band_data = np.transpose(band_data, [1, 2, 0])
+				# Stack the list of bands into a NumPy array and then perform the division
+				band_data_viz = np.stack(bands_viz, axis=0) / 3000
+				band_data_viz = band_data_viz.clip(0, 1)
+				band_data_viz = np.transpose(band_data_viz, [1, 2, 0])
 
-					plt.imshow(band_data, interpolation='nearest')
-					plt.axis('off')
+				band_data = band_data.clip(0, 1)
+				band_data = np.transpose(band_data, [1, 2, 0])
 
-					tileId = str(i) + "-" + str(j)
+				plt.axis('off')
 
-					analysis_parameters_tiles[locationKey][year][tileId] = {
-						"geometry": {"pt_nw":bb_pt_nw, "pt_ne":bb_pt_ne, "pt_se":bb_pt_se, "pt_sw":bb_pt_sw}
-					}
-					
-					transform = from_origin(0, cellsize, 1, 1)
-					tiff_output_path = "%s%s%s" % (dir_path, str(year)+"/geoTiffs/", locationKey+"_"+str(year)+"_"+tileId+".tif")
+				tileId = str(i) + "-" + str(j)
 
-					with rio.open( 
-						tiff_output_path,
-						'w',
-						driver='GTiff',
-						height=cellsize,
-						width=cellsize,
-						count=len(bands),
-						dtype=band_data.dtype,
-						crs=src_crs,
-						transform=transform
-					) as dst:
-						for band_idx, band in enumerate(bands, start=1):
-							dst.write(band, band_idx)
+				logJson['tiles'][year][tileId] = {
+					"geometry": {"pt_nw": bb_pt_nw, "pt_ne": bb_pt_ne, "pt_se": bb_pt_se, "pt_sw": bb_pt_sw}
+				}
+				
+				window = Window(jIdx, iIdx, cellsize, cellsize)
+				transform = src.window_transform(window)
+				tiff_output_path = "%s%s%s" % (data_dir_path, str(year) + "/geoTiffs/", locationKey + "_" + str(year) + "_" + tileId + ".tif")
+				
+				with rio.open(
+					tiff_output_path,
+					"w",
+					driver="GTiff",
+					height=cellsize,
+					width=cellsize,
+					count=src.count,
+					dtype=band_data.dtype,
+					crs=src.crs,
+					transform=transform,
+				) as dst:
+					dst.write(band_data.transpose((2, 0, 1)))
 
-					#jpg_output_path = output_path.replace('.tif', '.jpg')
-					jpg_output_path = "%s%s%s" % (dir_path, str(year)+"/jpgs/", locationKey+"_"+str(year)+"_"+tileId + ".jpg")
-					plt.savefig(jpg_output_path, format='jpg', bbox_inches='tight', pad_inches=0, dpi=300)
+				jpg_output_path = "%s%s%s" % (data_dir_path, str(year) + "/jpgs/", locationKey + "_" + str(year) + "_" + tileId + ".jpg")
+				
+				plt.imshow(band_data_viz, interpolation='nearest')
+				plt.savefig(jpg_output_path, format='jpg', bbox_inches='tight', pad_inches=0, dpi=cellsize)
 
-					plt.pause(0.05)  # Pause for 0.25 seconds
-					plt.close()
+				plt.close()
 
 			lon_start = bb_pt3[0]
 			lat_start = bb_pt_se[0]
 
-with open("%s%s" % (r"00_resources/","analysis_parameters.json"), "w", encoding='utf-8') as output_json:
-	output_json.write(json.dumps(analysis_parameters, indent=2, ensure_ascii=False))
+with open("%s%s" % (r"00_resources/",locationKey+"_"+"log.json"), "w", encoding='utf-8') as output_json:
+	output_json.write(json.dumps(logJson, indent=2, ensure_ascii=False))
