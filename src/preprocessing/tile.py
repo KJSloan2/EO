@@ -97,7 +97,7 @@ def haversine_meters(pt1, pt2):
 logJson = json.load(open("%s%s" % (r"00_resources/",locationKey+"_"+"log.json")))
 ############################### MONGODB CONNECTION ###################################
 ######################################################################################
-uri = "mongodb+srv://kjsloan2:dji3iniMpResidi0ZdrOne@cluster0.ql0cic1.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
+uri = ""
 # Create a new client and connect to the server
 #client = MongoClient(uri, server_api=ServerApi('1'))
 # Send a ping to confirm a successful connection
